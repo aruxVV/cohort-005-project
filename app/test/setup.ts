@@ -38,7 +38,7 @@ export function seedBaseData(testDb: ReturnType<typeof createTestDb>) {
     .values({
       name: "Test User",
       email: "test@example.com",
-      role: schema.UserRole.Student,
+      role: schema.UserRole.Learner,
     })
     .returning()
     .get();

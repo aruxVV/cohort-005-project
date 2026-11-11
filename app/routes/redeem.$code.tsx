@@ -11,15 +11,15 @@ import { Button } from "~/components/ui/button";
 import { Ticket, AlertCircle, CheckCircle2, Globe } from "lucide-react";
 import { data } from "react-router";
 import { db } from "~/db";
-import { purchases, coupons, courses, enrollments } from "~/db/schema";
+import { purchases, seats, courses, enrollments } from "~/db/schema";
 import { eq, and } from "drizzle-orm";
 
 function getCourseById(id: number) {
   return db.select().from(courses).where(eq(courses.id, id)).get();
 }
 
-function getCouponByCode(code: string) {
-  return db.select().from(coupons).where(eq(coupons.code, code)).get();
+function getSeatByCode(code: string) {
+  return db.select().from(seats).where(eq(seats.code, code)).get();
 }
 
 function isUserEnrolled(userId: number, courseId: number) {
@@ -38,18 +38,18 @@ type RedeemResult =
   | { ok: true; enrollment: typeof enrollments.$inferSelect }
   | { ok: false; error: string };
 
-function redeemCoupon(
+function redeemSeat(
   code: string,
   userId: number,
   userCountry: string
 ): RedeemResult {
-  const coupon = getCouponByCode(code);
-  if (!coupon) {
-    return { ok: false, error: "Coupon not found" };
+  const seat = getSeatByCode(code);
+  if (!seat) {
+    return { ok: false, error: "Seat not found" };
   }
 
-  if (coupon.redeemedByUserId !== null) {
-    return { ok: false, error: "Coupon has already been redeemed" };
+  if (seat.redeemedByUserId !== null) {
+    return { ok: false, error: "Seat has already been redeemed" };
   }
 
   const existingEnrollment = db
@@ -58,7 +58,7 @@ function redeemCoupon(
     .where(
       and(
         eq(enrollments.userId, userId),
-        eq(enrollments.courseId, coupon.courseId)
+        eq(enrollments.courseId, seat.courseId)
       )
     )
     .get();
@@ -70,28 +70,28 @@ function redeemCoupon(
   const purchase = db
     .select()
     .from(purchases)
-    .where(eq(purchases.id, coupon.purchaseId))
+    .where(eq(purchases.id, seat.purchaseId))
     .get();
 
   if (purchase?.country && purchase.country !== userCountry) {
     return {
       ok: false,
       error:
-        "This coupon can only be redeemed from the same country as the purchaser",
+        "This seat can only be redeemed from the same country as the purchaser",
     };
   }
 
-  db.update(coupons)
+  db.update(seats)
     .set({
       redeemedByUserId: userId,
       redeemedAt: new Date().toISOString(),
     })
-    .where(eq(coupons.id, coupon.id))
+    .where(eq(seats.id, seat.id))
     .run();
 
   const enrollment = db
     .insert(enrollments)
-    .values({ userId, courseId: coupon.courseId })
+    .values({ userId, courseId: seat.courseId })
     .returning()
     .get();
 
@@ -107,19 +107,19 @@ const redeemActionSchema = z.object({
 });
 
 export function meta({ loaderData }: Route.MetaArgs) {
-  const title = loaderData?.course?.title ?? "Redeem Coupon";
+  const title = loaderData?.course?.title ?? "Claim Your Seat";
   return [
     { title: `Redeem: ${title} — Cadence` },
-    { name: "description", content: `Redeem your coupon for ${title}` },
+    { name: "description", content: `Claim your seat for ${title}` },
   ];
 }
 
 export async function loader({ params, request }: Route.LoaderArgs) {
   const { code } = parseParams(params, redeemParamsSchema);
 
-  const coupon = getCouponByCode(code);
-  if (!coupon) {
-    throw data("Coupon not found.", { status: 404 });
+  const seat = getSeatByCode(code);
+  if (!seat) {
+    throw data("Seat not found.", { status: 404 });
   }
 
   const currentUserId = await getCurrentUserId(request);
@@ -129,13 +129,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     );
   }
 
-  const course = getCourseById(coupon.courseId);
+  const course = getCourseById(seat.courseId);
   if (!course) {
     throw data("Course not found.", { status: 404 });
   }
 
-  const alreadyRedeemed = coupon.redeemedByUserId !== null;
-  const alreadyEnrolled = isUserEnrolled(currentUserId, coupon.courseId);
+  const alreadyRedeemed = seat.redeemedByUserId !== null;
+  const alreadyEnrolled = isUserEnrolled(currentUserId, seat.courseId);
 
   // Check country mismatch upfront so we can show a clear message
   let countryMismatch = false;
@@ -144,7 +144,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     const purchase = db
       .select()
       .from(purchases)
-      .where(eq(purchases.id, coupon.purchaseId))
+      .where(eq(purchases.id, seat.purchaseId))
       .get();
     if (purchase?.country && purchase.country !== (userCountry ?? "")) {
       countryMismatch = true;
@@ -176,7 +176,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   const userCountry = await resolveCountry(request);
-  const result = redeemCoupon(code, currentUserId, userCountry ?? "");
+  const result = redeemSeat(code, currentUserId, userCountry ?? "");
 
   if (!result.ok) {
     return data({ error: result.error }, { status: 400 });
@@ -212,7 +212,7 @@ export default function Redeem({
 
   return (
     <div className="mx-auto max-w-2xl p-6 lg:p-8">
-      <h1 className="mb-2 text-2xl font-bold">Redeem Coupon</h1>
+      <h1 className="mb-2 text-2xl font-bold">Claim Your Seat</h1>
       <p className="mb-8 text-muted-foreground">
         You&apos;ve been invited to enroll in a course.
       </p>
@@ -225,7 +225,7 @@ export default function Redeem({
 
           <h2 className="mb-2 text-xl font-semibold">{course.title}</h2>
           <p className="mb-6 text-sm text-muted-foreground">
-            Coupon code:{" "}
+            Seat code:{" "}
             <code className="rounded bg-muted px-2 py-0.5">{code}</code>
           </p>
 
@@ -234,12 +234,12 @@ export default function Redeem({
               <div className="flex items-center justify-center gap-2 text-destructive">
                 <AlertCircle className="size-5" />
                 <span className="font-medium">
-                  This coupon has already been used
+                  This seat has already been used
                 </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 Someone has already claimed this seat. Please ask the person who
-                shared this link for a new coupon.
+                shared this link for a new seat.
               </p>
             </div>
           ) : alreadyEnrolled ? (
@@ -251,7 +251,7 @@ export default function Redeem({
                 </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                You already have access to this course. The coupon has not been
+                You already have access to this course. The seat has not been
                 used, so it can still be shared with someone else.
               </p>
               <Link to={`/courses/${course.slug}`}>
@@ -267,7 +267,7 @@ export default function Redeem({
                 <span className="font-medium">Region restriction</span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                This coupon can only be redeemed from the same country as the
+                This seat can only be redeemed from the same country as the
                 person who purchased it. Your location doesn&apos;t match the
                 purchaser&apos;s country.
               </p>

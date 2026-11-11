@@ -146,10 +146,10 @@ function roleBadge(role: string) {
           Instructor
         </span>
       );
-    case UserRole.Student:
+    case UserRole.Learner:
       return (
         <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
-          Student
+          Learner
         </span>
       );
     default:
@@ -288,7 +288,7 @@ function EditableUserRow({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={UserRole.Student}>Student</SelectItem>
+            <SelectItem value={UserRole.Learner}>Learner</SelectItem>
             <SelectItem value={UserRole.Instructor}>Instructor</SelectItem>
             <SelectItem value={UserRole.Admin}>Admin</SelectItem>
           </SelectContent>

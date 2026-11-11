@@ -26,7 +26,7 @@ import {
   comments,
   courseRatings,
   courses,
-  coupons,
+  seats,
   enrollments,
   lessonProgress,
   lessons,
@@ -252,8 +252,8 @@ function getStudentRevenue(
   // Correlated: did this purchase mint seats for other people?
   const mintedSeats = db
     .select({ one: sql`1` })
-    .from(coupons)
-    .where(eq(coupons.purchaseId, purchases.id));
+    .from(seats)
+    .where(eq(seats.purchaseId, purchases.id));
 
   const direct = db
     .select({ userId: purchases.userId, paid: sum(purchases.amountPaid) })
@@ -270,26 +270,26 @@ function getStudentRevenue(
     .all();
 
   const seatCounts = db
-    .select({ purchaseId: coupons.purchaseId, seats: count().as("seats") })
-    .from(coupons)
-    .groupBy(coupons.purchaseId)
+    .select({ purchaseId: seats.purchaseId, seats: count().as("seats") })
+    .from(seats)
+    .groupBy(seats.purchaseId)
     .as("seat_counts");
 
   const viaSeat = db
     .select({
-      userId: coupons.redeemedByUserId,
+      userId: seats.redeemedByUserId,
       // Divided rather than rounded per row: the shares are summed first and
       // rounded once, so five seats out of 3333 cents still add up.
       paid: sql<number>`sum(${purchases.amountPaid} * 1.0 / ${seatCounts.seats})`,
     })
-    .from(coupons)
-    .innerJoin(purchases, eq(coupons.purchaseId, purchases.id))
+    .from(seats)
+    .innerJoin(purchases, eq(seats.purchaseId, purchases.id))
     .innerJoin(courses, eq(purchases.courseId, courses.id))
-    .innerJoin(seatCounts, eq(seatCounts.purchaseId, coupons.purchaseId))
+    .innerJoin(seatCounts, eq(seatCounts.purchaseId, seats.purchaseId))
     .where(
-      and(inArray(coupons.redeemedByUserId, studentIds), ownedBy(instructorId))
+      and(inArray(seats.redeemedByUserId, studentIds), ownedBy(instructorId))
     )
-    .groupBy(coupons.redeemedByUserId)
+    .groupBy(seats.redeemedByUserId)
     .all();
 
   const paidByUser = new Map<number, number>();
@@ -334,17 +334,17 @@ function getTopBuyers(
 
   const buyerIds = buyers.map((buyer) => buyer.userId);
 
-  // Seats are counted in their own query: joining coupons to purchases above
+  // Seats are counted in their own query: joining seats to purchases above
   // would repeat each purchase once per seat and multiply the spend the
   // leaderboard ranks on.
-  const seats = db
+  const seatRows = db
     .select({
       userId: purchases.userId,
-      bought: count(coupons.id),
-      unredeemed: sql<number>`sum(case when ${coupons.redeemedByUserId} is null then 1 else 0 end)`,
+      bought: count(seats.id),
+      unredeemed: sql<number>`sum(case when ${seats.redeemedByUserId} is null then 1 else 0 end)`,
     })
-    .from(coupons)
-    .innerJoin(purchases, eq(coupons.purchaseId, purchases.id))
+    .from(seats)
+    .innerJoin(purchases, eq(seats.purchaseId, purchases.id))
     .innerJoin(courses, eq(purchases.courseId, courses.id))
     .where(
       and(
@@ -355,7 +355,7 @@ function getTopBuyers(
     .groupBy(purchases.userId)
     .all();
 
-  const seatsByUser = new Map(seats.map((row) => [row.userId, row]));
+  const seatsByUser = new Map(seatRows.map((row) => [row.userId, row]));
 
   // No range here: "never enrolled" is a fact about the person, not about the
   // last thirty days.
