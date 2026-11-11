@@ -76,7 +76,7 @@ export async function action({ request, url }: Route.ActionArgs) {
   // Create new user as student
   const newUser = db
     .insert(users)
-    .values({ name, email, role: UserRole.Student, avatarUrl: null })
+    .values({ name, email, role: UserRole.Learner, avatarUrl: null })
     .returning()
     .get();
   const cookie = await setCurrentUserId(request, newUser.id);

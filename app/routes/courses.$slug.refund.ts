@@ -5,14 +5,14 @@ import { getCurrentUserId } from "~/lib/session";
 import { db } from "~/db";
 import {
   courses,
-  coupons,
+  seats,
   lessons,
   modules,
   purchases,
-  refunds,
+  refundRequests,
   users,
   videoWatchEvents,
-  RefundStatus,
+  RefundRequestStatus,
 } from "~/db/schema";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
@@ -60,11 +60,11 @@ function getLessonIdsForCourse(courseId: number): number[] {
 function getOpenRefundRequest(purchaseId: number) {
   return db
     .select()
-    .from(refunds)
+    .from(refundRequests)
     .where(
       and(
-        eq(refunds.purchaseId, purchaseId),
-        eq(refunds.status, RefundStatus.Open)
+        eq(refundRequests.purchaseId, purchaseId),
+        eq(refundRequests.status, RefundRequestStatus.Open)
       )
     )
     .get();
@@ -85,25 +85,32 @@ function lastDayOfWindow(purchasedAtIso: string): string {
 }
 
 /**
- * The confirmation the learner gets in their inbox. There is no mail
+ * The confirmation the Purchaser gets in their inbox. There is no mail
  * transport wired up yet, so the built message goes to the server log.
+ *
+ * Nothing has been refunded yet: this confirms an Open Refund Request, so it
+ * says what approval would mean rather than promising money.
  */
 function buildRefundRequestEmail(input: {
-  learnerName: string;
-  learnerEmail: string;
+  purchaserName: string;
+  purchaserEmail: string;
   courseTitle: string;
   amount: number;
+  isTeamPurchase: boolean;
 }) {
+  const whatApprovalEnds = input.isTeamPurchase
+    ? "and any unclaimed seats will stop working."
+    : "and you'll lose access to the course straight away.";
+
   return {
-    to: input.learnerEmail,
+    to: input.purchaserEmail,
     subject: `Refund requested — ${input.courseTitle}`,
     body: [
-      `Hi ${input.learnerName},`,
+      `Hi ${input.purchaserName},`,
       "",
-      `We have your refund request for "${input.courseTitle}".`,
-      `The refund is for ${formatPrice(input.amount)}, the amount you paid.`,
+      `We have your refund request for "${input.courseTitle}". Our team reviews every request by hand, and we'll email you once we've decided.`,
       "",
-      "Our team reviews every refund request by hand. You do not need to do anything else — we will email you again when it is done.",
+      `If we approve it, we'll refund ${formatPrice(input.amount)}, the full amount you paid, ${whatApprovalEnds}`,
       "",
       "— The Cadence team",
     ].join("\n"),
@@ -124,13 +131,13 @@ export async function action({ params, request }: Route.ActionArgs) {
     throw data("Course not found", { status: 404 });
   }
 
-  const learner = db
+  const purchaser = db
     .select()
     .from(users)
     .where(eq(users.id, currentUserId))
     .get();
 
-  if (!learner) {
+  if (!purchaser) {
     throw data("User not found", { status: 404 });
   }
 
@@ -146,13 +153,13 @@ export async function action({ params, request }: Route.ActionArgs) {
     });
   }
 
-  // A seat that came out of a team licence, and has been claimed, belongs to
-  // the team — the learner cannot hand it back on their own.
+  // A Team Purchase is refunded whole or not at all, so one Claimed Seat
+  // blocks the Refund Request for the entire purchase.
   const claimedSeat = db
-    .select({ id: coupons.id })
-    .from(coupons)
+    .select({ id: seats.id })
+    .from(seats)
     .where(
-      and(eq(coupons.purchaseId, purchase.id), isNotNull(coupons.redeemedAt))
+      and(eq(seats.purchaseId, purchase.id), isNotNull(seats.redeemedAt))
     )
     .get();
 
@@ -207,20 +214,28 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   db
-    .insert(refunds)
+    .insert(refundRequests)
     .values({
       purchaseId: purchase.id,
-      status: RefundStatus.Open,
+      status: RefundRequestStatus.Open,
       reason: parsed.data.reason,
     })
     .returning()
     .get();
 
+  // A Team Purchase is the only kind of Purchase that has Seats.
+  const isTeamPurchase = !!db
+    .select({ id: seats.id })
+    .from(seats)
+    .where(eq(seats.purchaseId, purchase.id))
+    .get();
+
   const email = buildRefundRequestEmail({
-    learnerName: learner.name,
-    learnerEmail: learner.email,
+    purchaserName: purchaser.name,
+    purchaserEmail: purchaser.email,
     courseTitle: course.title,
     amount: purchase.amountPaid,
+    isTeamPurchase,
   });
 
   console.log(

@@ -10,7 +10,7 @@ import { db } from "~/db";
 import {
   teams,
   teamMembers,
-  coupons,
+  seats,
   courses,
   users,
   TeamMemberRole,
@@ -34,8 +34,8 @@ function getTeamForAdmin(userId: number) {
   return db.select().from(teams).where(eq(teams.id, membership.teamId)).get();
 }
 
-function getCouponsForTeam(teamId: number) {
-  return db.select().from(coupons).where(eq(coupons.teamId, teamId)).all();
+function getSeatsForTeam(teamId: number) {
+  return db.select().from(seats).where(eq(seats.teamId, teamId)).all();
 }
 
 function getCourseById(id: number) {
@@ -54,7 +54,7 @@ interface CourseStats {
   claimedSeats: number;
 }
 
-interface CouponRow {
+interface SeatRow {
   id: number;
   code: string;
   courseId: number;
@@ -85,7 +85,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
-  const allCoupons = getCouponsForTeam(team.id);
+  const allSeats = getSeatsForTeam(team.id);
 
   // Build per-course stats
   const courseMap = new Map<
@@ -99,20 +99,20 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   >();
 
-  for (const coupon of allCoupons) {
-    if (!courseMap.has(coupon.courseId)) {
-      const course = getCourseById(coupon.courseId);
-      courseMap.set(coupon.courseId, {
-        courseId: coupon.courseId,
+  for (const seat of allSeats) {
+    if (!courseMap.has(seat.courseId)) {
+      const course = getCourseById(seat.courseId);
+      courseMap.set(seat.courseId, {
+        courseId: seat.courseId,
         courseTitle: course?.title ?? "Unknown Course",
         courseSlug: course?.slug ?? "",
         total: 0,
         claimed: 0,
       });
     }
-    const entry = courseMap.get(coupon.courseId)!;
+    const entry = courseMap.get(seat.courseId)!;
     entry.total++;
-    if (coupon.redeemedByUserId !== null) {
+    if (seat.redeemedByUserId !== null) {
       entry.claimed++;
     }
   }
@@ -127,25 +127,25 @@ export async function loader({ request }: Route.LoaderArgs) {
     })
   );
 
-  // Build coupon rows with redeemer email
-  const couponRows: CouponRow[] = allCoupons.map((coupon) => {
+  // Build seat rows with redeemer email
+  const seatRows: SeatRow[] = allSeats.map((seat) => {
     let redeemedByEmail: string | null = null;
-    if (coupon.redeemedByUserId !== null) {
-      const user = getUserById(coupon.redeemedByUserId);
+    if (seat.redeemedByUserId !== null) {
+      const user = getUserById(seat.redeemedByUserId);
       redeemedByEmail = user?.email ?? null;
     }
-    const course = getCourseById(coupon.courseId);
+    const course = getCourseById(seat.courseId);
     return {
-      id: coupon.id,
-      code: coupon.code,
-      courseId: coupon.courseId,
+      id: seat.id,
+      code: seat.code,
+      courseId: seat.courseId,
       courseTitle: course?.title ?? "Unknown Course",
       redeemedByEmail,
-      createdAt: coupon.createdAt,
+      createdAt: seat.createdAt,
     };
   });
 
-  return { courseStats, couponRows };
+  return { courseStats, seatRows };
 }
 
 function CopyButton({ code }: { code: string }) {
@@ -181,13 +181,13 @@ function CopyButton({ code }: { code: string }) {
 }
 
 export default function Team({ loaderData }: Route.ComponentProps) {
-  const { courseStats, couponRows } = loaderData;
+  const { courseStats, seatRows } = loaderData;
   const [courseFilter, setCourseFilter] = useState<number | "all">("all");
 
-  const filteredCoupons =
+  const filteredSeats =
     courseFilter === "all"
-      ? couponRows
-      : couponRows.filter((c) => c.courseId === courseFilter);
+      ? seatRows
+      : seatRows.filter((c) => c.courseId === courseFilter);
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -202,7 +202,7 @@ export default function Team({ loaderData }: Route.ComponentProps) {
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Team Management</h1>
         <p className="mt-1 text-muted-foreground">
-          Manage your team&apos;s course seats and coupon codes
+          Manage your team&apos;s course seats and the links to share them
         </p>
       </div>
 
@@ -243,10 +243,10 @@ export default function Team({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      {/* Coupon list */}
+      {/* Seat list */}
       <div>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Coupons</h2>
+          <h2 className="text-lg font-semibold">Seats</h2>
           {courseStats.length > 1 && (
             <select
               value={courseFilter}
@@ -267,8 +267,8 @@ export default function Team({ loaderData }: Route.ComponentProps) {
           )}
         </div>
 
-        {filteredCoupons.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No coupons yet.</p>
+        {filteredSeats.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No seats yet.</p>
         ) : (
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
@@ -281,20 +281,20 @@ export default function Team({ loaderData }: Route.ComponentProps) {
                 </tr>
               </thead>
               <tbody>
-                {filteredCoupons.map((coupon) => (
-                  <tr key={coupon.id} className="border-b last:border-0">
+                {filteredSeats.map((seat) => (
+                  <tr key={seat.id} className="border-b last:border-0">
                     <td className="px-4 py-3">
                       <code className="rounded bg-muted px-2 py-0.5 text-xs">
-                        {coupon.code}
+                        {seat.code}
                       </code>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {coupon.courseTitle}
+                      {seat.courseTitle}
                     </td>
                     <td className="px-4 py-3">
-                      {coupon.redeemedByEmail ? (
+                      {seat.redeemedByEmail ? (
                         <span className="text-muted-foreground">
-                          Claimed by {coupon.redeemedByEmail}
+                          Claimed by {seat.redeemedByEmail}
                         </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
@@ -303,8 +303,8 @@ export default function Team({ loaderData }: Route.ComponentProps) {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {!coupon.redeemedByEmail && (
-                        <CopyButton code={coupon.code} />
+                      {!seat.redeemedByEmail && (
+                        <CopyButton code={seat.code} />
                       )}
                     </td>
                   </tr>
